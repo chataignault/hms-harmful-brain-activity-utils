@@ -4,7 +4,7 @@ from typing import Optional, Tuple, List
 import os
 from sklearn.utils import shuffle
 
-from .preamble import Grade, Dir, KAGGLE, RANDOM_STATE
+from .preamble import Grade, Dir, KAGGLE, RANDOM_STATE, VOTE_COLS
 from .classes import Eeg
 
 
@@ -12,12 +12,16 @@ def open_train_metadata(folder: str) -> pd.DataFrame:
     """
     open and process train.csv file
     """
-    train = pd.read_csv(os.path.join(Dir.root, "train.csv"))
-    vote_cols = [c for c in train.columns if c.endswith("vote")]
-    train["n_votes"] = train[vote_cols].sum(axis=1)
-    for c in vote_cols:
-        train[c] = train[c] / train["n_votes"]
-    train["eeg_length"] = train["eeg_label_offset_seconds"].diff().shift(-1).fillna(-1).astype(int)
+    if not KAGGLE and (not os.path.exists(os.path.join(Dir.intermediate_output, "meta_train_extended.parquet"))):
+        train = pd.read_csv(os.path.join(Dir.root, "train.csv"))
+        train["n_votes"] = train[VOTE_COLS].sum(axis=1)
+        for c in VOTE_COLS:
+            train[c] = train[c] / train["n_votes"]
+        train["eeg_length"] = train["eeg_label_offset_seconds"].diff().shift(-1).fillna(-1).astype(int)
+        if not KAGGLE:
+            train["contains_na"] = train.apply(lambda sub: Eeg(Dir.eeg_train, sub).open_subs().isna().any().any(), axis=1)
+    else:
+        train = pd.read_parquet(os.path.join(Dir.intermediate_output, "meta_train_extended.parquet"))
     return train
 
 
@@ -35,7 +39,7 @@ def print_summary_metadata(data: pd.DataFrame) -> None:
     print("=" * 50)
 
 
-def pre_process_meta(meta: pd.DataFrame, y_cols: str, grade: Optional[Grade] = None) -> pd.DataFrame:
+def pre_process_meta(meta: pd.DataFrame, y_cols: str, grade: Optional[Grade] = None, test_mode:bool=False) -> pd.DataFrame:
     """
     - make sure metadata can be sampled randomly or linearly without fear of class imbalance
     - subselection on the "quality" of the target variable : how much are experts agreeing on the subsamle
@@ -80,12 +84,12 @@ def process_extracted_features_to_design(X_: List[pd.Series]) -> pd.DataFrame:
 
 
 def process_data_from_meta(
-    meta: pd.DataFrame, y_cols: str, max_nsample: Optional[int] = None, grade: Optional[Grade] = None
+    meta: pd.DataFrame, y_cols: str, max_nsample: Optional[int] = None, grade: Optional[Grade] = None, test_mode:bool=False,
 ) -> Tuple[pd.DataFrame, pd.DataFrame]:
     """
     Process the train data from the metadata to (design matrix,  target matrix)
     """
-    meta = pre_process_meta(meta, y_cols, grade)
+    meta = pre_process_meta(meta, y_cols, grade, test_mode=test_mode)
     Y_all = process_target(meta[y_cols])
     n = len(Y_all)
     if max_nsample:
@@ -94,10 +98,15 @@ def process_data_from_meta(
     for j in range(n):
         sample = meta.iloc[j]
         if sample["eeg_length"] > 0:
-            eeg = Eeg(Dir.eeg_train, sample).open_subs()
-            if not eeg.isna().any().any():  # TODO : deal with Nan values
-                X_.append(extract_features_eeg(eeg))
-                Y_.append(Y_all.iloc[j])
+            if "contains_na" in sample.index:
+                if not sample["contains_na"]:
+                    X_.append(extract_features_eeg(Eeg(Dir.eeg_train, sample).open_subs()))
+                    Y_.append(Y_all.iloc[j])
+            else:
+                eeg = Eeg(Dir.eeg_train, sample).open_subs()
+                if not eeg.isna().any().any():  # TODO : deal with Nan values
+                    X_.append(extract_features_eeg(eeg))
+                    Y_.append(Y_all.iloc[j])
     print("Number of samples without missing values selected : ", len(Y_))
     X = process_extracted_features_to_design(X_)
     Y = pd.concat(Y_, axis=0)

@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import Tuple
+from typing import Tuple, Optional, Union, List
 import pandas as pd
 import os
 
@@ -22,6 +22,19 @@ class Sample(ABC):
         start_s = int(self.eeg_label_offset_seconds)
         duration_s = int(self.eeg_length)
         return Const.fq_eeg * start_s, Const.fq_eeg * (start_s + duration_s)
+    
+    def plot(self, columns:Optional[Union[str, List[str]]]=None):
+        kwargs = {
+            "figsize": (10, 5),
+            "grid": True,
+            "legend":True,
+            "title": f"sample {self.eeg_id}",
+            "alpha":.7
+        }
+        if columns:
+            self.open()[columns].plot(**kwargs)
+        else:
+            self.open().plot(**kwargs)
 
 
 class Eeg(Sample):

@@ -14,7 +14,12 @@ def train_GBC(
     train: pd.DataFrame, y_cols: str, max_it: Optional[int] = None, grade: Optional[Grade] = None
 ) -> GradientBoostingClassifier:
     X, Y = process_data_from_meta(train, y_cols, max_it=max_it, grade=grade)
-    model = GradientBoostingClassifier()
+    model = GradientBoostingClassifier(
+        loss="log_loss",
+        learning_rate=0.1,
+        criterion="friedman_mse",
+
+    )
     model.fit(X, Y)
     return model
 
@@ -26,10 +31,11 @@ def train_logistic_regression_CV(
     grade: Optional[Grade] = None,
     max_nsample: Optional[int] = None,
     scale: bool = False,
+    Cs:int=10
 ) -> LogisticRegressionCV:
     X, Y = process_data_from_meta(train, y_cols, max_nsample=max_nsample, grade=grade)
     model = LogisticRegressionCV(
-        fit_intercept=True, penalty="l1", solver="saga", multi_class="multinomial", max_iter=max_it
+        fit_intercept=True, penalty="l1", solver="saga", multi_class="multinomial", max_iter=max_it, Cs=Cs
     )
     if scale:
         scaler = StandardScaler()
@@ -60,7 +66,7 @@ def predict_probas_test_set(model, meta_test: pd.DataFrame) -> pd.DataFrame:
 def test_model(
     model: LogisticRegressionCV, y_cols: str, test_meta: pd.DataFrame, scaler: Optional[StandardScaler] = None
 ):
-    X, Y = process_data_from_meta(test_meta, y_cols)
+    X, _ = process_data_from_meta(test_meta, y_cols, test_mode=True)
     if scaler:
         X = scaler.transform(X)
     return model.predict_proba(X)
