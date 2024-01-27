@@ -3,7 +3,7 @@ __pycache__/
 feature_exploration.ipynb
 file_exploration.ipynb
 gradient_boost_classifier.ipynb
-logistic_regression_CV_regularised.ipynb
+# logistic_regression_CV_regularised.ipynb
 logistic_regression.ipynb
 signature_transform.ipynb
 
