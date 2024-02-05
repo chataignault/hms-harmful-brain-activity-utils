@@ -3,13 +3,12 @@ import numpy as np
 from typing import Optional, Tuple, List
 import os
 from sklearn.utils import shuffle
-import esig
 
 from .preamble import Grade, Dir, KAGGLE, RANDOM_STATE, VOTE_COLS
-from .classes import Eeg
+from .classes import Eeg, FeatureGenerator
 
 
-def open_train_metadata(folder: str) -> pd.DataFrame:
+def open_train_metadata(read: bool = False) -> pd.DataFrame:
     """
     open and process train.csv file
     """
@@ -17,13 +16,16 @@ def open_train_metadata(folder: str) -> pd.DataFrame:
         not os.path.exists(
             os.path.join(Dir.intermediate_output, "meta_train_extended.parquet")
         )
+        or not read
     ):
         train = pd.read_csv(os.path.join(Dir.root, "train.csv"))
         train["n_votes"] = train[VOTE_COLS].sum(axis=1)
         for c in VOTE_COLS:
             train[c] = train[c] / train["n_votes"]
+        # TODO : what is the true length of each subsample ??
         train["eeg_length"] = (
-            train["eeg_label_offset_seconds"].diff().shift(-1).fillna(-1).astype(int)
+            50
+            # train["eeg_label_offset_seconds"].diff().shift(-1).fillna(-1).astype(int)
         )
         if not KAGGLE:
             train["contains_na"] = train.apply(
@@ -81,14 +83,6 @@ def process_target(Y: pd.DataFrame) -> pd.DataFrame:
     return Y
 
 
-class FeatureGenerator:
-    def __init__(self):
-        self.feature_names = []
-
-    def process(self, data) -> np.ndarray:
-        ...
-
-
 def extract_features_eeg(eeg: pd.DataFrame) -> pd.DataFrame:
     """
     compute the features for a given sample,
@@ -139,28 +133,29 @@ def process_data_from_meta(
     Process the train data from the metadata to (design matrix,  target matrix)
     """
     meta = pre_process_meta(meta, y_cols, grade, test_mode=test_mode)
-    Y_all = process_target(meta[y_cols])
-    n = len(Y_all)
-    if max_nsample:
-        n = np.min([n, max_nsample])
-    X_, Y_ = [], []
-    for j in range(n):
-        sample = meta.iloc[j]
-        if sample["eeg_length"] > 0:
-            if "contains_na" in sample.index:
-                if not sample["contains_na"]:
-                    X_.append(
-                        extract_features_eeg(Eeg(Dir.eeg_train, sample).open_subs())
-                    )
-                    Y_.append(Y_all.iloc[j])
-            else:
-                eeg = Eeg(Dir.eeg_train, sample).open_subs()
-                if not eeg.isna().any().any():  # TODO : deal with Nan values
-                    X_.append(extract_features_eeg(eeg))
-                    Y_.append(Y_all.iloc[j])
-    print("Number of samples without missing values selected : ", len(Y_))
-    X = process_extracted_features_to_design(X_)
-    Y = pd.concat(Y_, axis=0)
+    Y = process_target(meta[y_cols]).iloc[:max_nsample]
+    # n = len(Y_all)
+    # if max_nsample:
+    #     n = np.min([n, max_nsample])
+    # X_, Y_ = [], []
+    # for j in range(n):
+    #     sample = meta.iloc[j]
+    #     if sample["eeg_length"] > 0:
+    #         if "contains_na" in sample.index:
+    #             if not sample["contains_na"]:
+    #                 X_.append(
+    #                     extract_features_eeg(Eeg(Dir.eeg_train, sample).open_subs())
+    #                 )
+    #                 Y_.append(Y_all.iloc[j])
+    #         else:
+    #             eeg = Eeg(Dir.eeg_train, sample).open_subs()
+    #             if not eeg.isna().any().any():  # TODO : deal with Nan values
+    #                 X_.append(extract_features_eeg(eeg))
+    #                 Y_.append(Y_all.iloc[j])
+    # print("Number of samples without missing values selected : ", len(Y_))
+    # X = process_extracted_features_to_design(X_)
+    # Y = pd.concat(Y_, axis=0)
+    X = FeatureGenerator(Dir.eeg_train).process(meta.iloc[:max_nsample])
     return X, Y
 
 
