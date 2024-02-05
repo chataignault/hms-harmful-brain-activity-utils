@@ -22,14 +22,14 @@ class Sample(ABC):
         start_s = int(self.eeg_label_offset_seconds)
         duration_s = int(self.eeg_length)
         return Const.fq_eeg * start_s, Const.fq_eeg * (start_s + duration_s)
-    
-    def plot(self, columns:Optional[Union[str, List[str]]]=None):
+
+    def plot(self, columns: Optional[Union[str, List[str]]] = None):
         kwargs = {
             "figsize": (10, 5),
             "grid": True,
-            "legend":True,
+            "legend": True,
             "title": f"sample {self.eeg_id}",
-            "alpha":.7
+            "alpha": 0.7,
         }
         if columns:
             self.open()[columns].plot(**kwargs)
@@ -38,7 +38,9 @@ class Sample(ABC):
 
 
 class Eeg(Sample):
-    def __init__(self, folder, sample: pd.Series):  # don't forget to add length in sec to the meta df
+    def __init__(
+        self, folder, sample: pd.Series
+    ):  # don't forget to add length in sec to the meta df
         super().__init__(folder)
         kwargs = sample.to_dict()
         for key, value in kwargs.items():
