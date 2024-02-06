@@ -1,6 +1,6 @@
 import pandas as pd
 import numpy as np
-from typing import Optional, Tuple, List
+from typing import Optional, Tuple, List, Callable
 import os
 from sklearn.utils import shuffle
 
@@ -8,7 +8,7 @@ from .preamble import Grade, Dir, KAGGLE, RANDOM_STATE, VOTE_COLS
 from .classes import Eeg, FeatureGenerator
 
 
-def open_train_metadata(read: bool = False) -> pd.DataFrame:
+def open_train_metadata(read: bool = False, checkna: bool = False) -> pd.DataFrame:
     """
     open and process train.csv file
     """
@@ -27,7 +27,7 @@ def open_train_metadata(read: bool = False) -> pd.DataFrame:
             50
             # train["eeg_label_offset_seconds"].diff().shift(-1).fillna(-1).astype(int)
         )
-        if not KAGGLE:
+        if not KAGGLE and checkna:
             train["contains_na"] = train.apply(
                 lambda sub: Eeg(Dir.eeg_train, sub).open_subs().isna().any().any(),
                 axis=1,
@@ -61,7 +61,6 @@ def pre_process_meta(
     meta: pd.DataFrame,
     y_cols: str,
     grade: Optional[Grade] = None,
-    test_mode: bool = False,
 ) -> pd.DataFrame:
     """
     - make sure metadata can be sampled randomly or linearly without fear of class imbalance
@@ -124,15 +123,15 @@ def process_extracted_features_to_design(X_: List[pd.Series]) -> pd.DataFrame:
 
 def process_data_from_meta(
     meta: pd.DataFrame,
+    feature_generator: FeatureGenerator,
     y_cols: str,
     max_nsample: Optional[int] = None,
     grade: Optional[Grade] = None,
-    test_mode: bool = False,
 ) -> Tuple[pd.DataFrame, pd.DataFrame]:
     """
     Process the train data from the metadata to (design matrix,  target matrix)
     """
-    meta = pre_process_meta(meta, y_cols, grade, test_mode=test_mode)
+    meta = pre_process_meta(meta, y_cols, grade)
     Y = process_target(meta[y_cols]).iloc[:max_nsample]
     # n = len(Y_all)
     # if max_nsample:
@@ -155,7 +154,7 @@ def process_data_from_meta(
     # print("Number of samples without missing values selected : ", len(Y_))
     # X = process_extracted_features_to_design(X_)
     # Y = pd.concat(Y_, axis=0)
-    X = FeatureGenerator(Dir.eeg_train).process(meta.iloc[:max_nsample])
+    X = feature_generator.process(meta.iloc[:max_nsample])
     return X, Y
 
 

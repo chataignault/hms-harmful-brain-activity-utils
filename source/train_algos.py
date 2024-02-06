@@ -1,6 +1,6 @@
 import os
 import pandas as pd
-from typing import Optional
+from typing import Optional, Callable, Union
 from sklearn.ensemble import GradientBoostingClassifier
 from sklearn.preprocessing import StandardScaler
 
@@ -13,6 +13,7 @@ from .process import (
     extract_features_eeg,
     clean_covariates,
 )
+from .classes import FeatureGenerator
 
 
 def train_GBC(
@@ -45,16 +46,20 @@ def train_GBC(
 
 def train_logistic_regression_CV(
     train: pd.DataFrame,
+    feature_generator: Callable,
     y_cols: str,
     max_it: int = 100,
     grade: Optional[Grade] = None,
     max_nsample: Optional[int] = None,
     scale: bool = False,
     Cs: int = 10,
+    fit_intercept: bool = False,
 ) -> LogisticRegressionCV:
-    X, Y = process_data_from_meta(train, y_cols, max_nsample=max_nsample, grade=grade)
+    X, Y = process_data_from_meta(
+        train, feature_generator, y_cols, max_nsample=max_nsample, grade=grade
+    )
     model = LogisticRegressionCV(
-        fit_intercept=True,
+        fit_intercept=fit_intercept,
         penalty="l1",
         solver="saga",
         multi_class="multinomial",
@@ -84,20 +89,20 @@ def predict_probas_test_set(model, meta_test: pd.DataFrame) -> pd.DataFrame:
         predicted_probas_.append(
             pd.DataFrame(predicted_probas_sample, columns=VOTE_COLS, index=[eeg_id])
         )
-
     sub = pd.concat(predicted_probas_)
     sub.index.name = "eeg_id"
     return sub
 
 
 def test_model(
-    model: LogisticRegressionCV,
+    model: Union[LogisticRegressionCV, GradientBoostingClassifier],
+    feature_generator: FeatureGenerator,
     y_cols: str,
     test_meta: pd.DataFrame,
     scaler: Optional[StandardScaler] = None,
 ):
-    X, _ = process_data_from_meta(test_meta, y_cols, test_mode=True)
-    X = X.fillna(0.0)  # OOPS, shuold not be NA values when computing the features
+    X, _ = process_data_from_meta(test_meta, feature_generator, y_cols)
+    # X = X.fillna(0.0)  # OOPS, shuold not be NA values when computing the features
     if scaler:
         X = scaler.transform(X)
     return model.predict_proba(X)

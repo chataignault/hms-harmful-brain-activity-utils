@@ -1,10 +1,9 @@
 from abc import ABC, abstractmethod
-from typing import Tuple, Optional, Union, List
+from typing import Tuple, Optional, Union, List, Callable
 import pandas as pd
 import os
 import numpy as np
-import esig
-
+from esig import tosig as ts
 from .preamble import Const, Dir
 
 
@@ -130,26 +129,53 @@ class ChainBuilder:
 
     def signature(
         self,
-        cols: List[str],
         depth: int,
-        index: List[int],
-        param_invariant: bool = False,
+        cols: Optional[List[str]] = None,
+        index: Optional[List[int]] = None,
+        parameterise: bool = False,
     ):
         """
         take the signature of selected columns,
         with max depth,
         and select only desired elements of the signature
         """
-        if param_invariant:
+        if cols is None:
+            cols = self.raw.columns
+        if index is None:
+            p = len(cols)
+            n_sig_terms = ChainBuilder.n_sig_coordinates(p, depth)
+            index = range(n_sig_terms)
+        if parameterise:
+            index = [
+                i
+                for i in index
+                if i not in ChainBuilder.t_dependant_sig_indexes(len(cols), depth)
+            ]
             self.features.append(
-                esig.stream2sig(
-                    self.raw[cols].reset_index(drop=True).reset_index(), depth=depth
+                ts.stream2sig(
+                    self.raw[cols].reset_index(drop=True).reset_index().values, depth
                 )[index]
             )
+
         else:  # numerically instable
-            self.features.append(esig.stream2sig(self.raw[cols], depth=depth)[index])
-        self.feature_names += [f"sig-{idx}" for idx in index]
+            self.features.append(ts.stream2sig(self.raw[cols].values, depth)[index])
+        # print(ts.sigkeys(len(cols), depth))
+        sig_index = np.array(ts.sigkeys(len(cols), depth).strip().split(" "))[index]
+        self.feature_names += [f"sig-{idx}" for idx in sig_index]
         return self
+
+    @staticmethod
+    def n_sig_coordinates(p: int, depth: int) -> int:
+        return int((p ** (depth + 1) - 1) / (p - 1))
+
+    @staticmethod
+    def t_dependant_sig_indexes(p: int, depth: int) -> set:
+        """
+        returns the set of indices of the signature that will be iterated only
+        on the time variable, in case of forcing parameterisation dependance
+        p : path dimension
+        """
+        return set(np.cumsum([(p + 1) ** k for k in range(depth)]))
 
 
 class EegChain(ChainBuilder):
@@ -179,18 +205,8 @@ class SpcChain(ChainBuilder):
 
 
 class FeatureGenerator:
-    def __init__(self, dir: Dir):
-        self.eeg_chain = lambda sample: (
-            EegChain()
-            .open(Eeg(dir, sample))
-            ._fillna()
-            ._divide(coef=1000.0)
-            .mean(cols=["Fp1", "EKG"])
-            .var(cols=["F3", "EKG"])
-            .signature(cols=["Fp1", "P3"], depth=3, index=range(6))
-            .clip_all_(low=-1e4, high=1e4)
-            .result()
-        )
+    def __init__(self, eeg_chain: Callable):
+        self.eeg_chain = eeg_chain
         self.spc_chain = None
         self.features = []
 
@@ -200,6 +216,7 @@ class FeatureGenerator:
     def process(self, metadata: pd.DataFrame, save: Optional[str] = None) -> np.ndarray:
         self.features.append(metadata.apply(self.eeg_chain, axis=1))
         X = pd.concat(self.features)
+        X.index = metadata["eeg_id"]
         if save:
             self.save(X, save)
         return X
