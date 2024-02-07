@@ -1,4 +1,3 @@
-import os
 import pandas as pd
 from typing import Optional, Callable, Union
 from sklearn.ensemble import GradientBoostingClassifier
@@ -6,12 +5,9 @@ from sklearn.preprocessing import StandardScaler
 
 from sklearn.linear_model import LogisticRegressionCV
 
-from .preamble import Grade, Dir, VOTE_COLS
+from .preamble import Grade, VOTE_COLS
 from .process import (
     process_data_from_meta,
-    process_extracted_features_to_design,
-    extract_features_eeg,
-    clean_covariates,
 )
 from .classes import FeatureGenerator
 
@@ -39,7 +35,6 @@ def train_GBC(
             n_estimators=200,
             max_depth=3,
         )
-    X, Y = clean_covariates(X, Y)
     model.fit(X, Y)
     return model
 
@@ -66,7 +61,6 @@ def train_logistic_regression_CV(
         max_iter=max_it,
         Cs=Cs,
     )
-    X, Y = clean_covariates(X, Y)
     if scale:
         scaler = StandardScaler()
         scaler.fit(X)
@@ -78,22 +72,6 @@ def train_logistic_regression_CV(
     return model
 
 
-def predict_probas_test_set(model, meta_test: pd.DataFrame) -> pd.DataFrame:
-    predicted_probas_ = []
-    for i in range(len(meta_test)):
-        eeg_id = meta_test.loc[i, "eeg_id"]
-        eeg_test = pd.read_parquet(os.path.join(Dir.eeg_test, f"{eeg_id}.parquet"))
-        predicted_probas_sample = model.predict_proba(
-            process_extracted_features_to_design([extract_features_eeg(eeg_test)])
-        )
-        predicted_probas_.append(
-            pd.DataFrame(predicted_probas_sample, columns=VOTE_COLS, index=[eeg_id])
-        )
-    sub = pd.concat(predicted_probas_)
-    sub.index.name = "eeg_id"
-    return sub
-
-
 def test_model(
     model: Union[LogisticRegressionCV, GradientBoostingClassifier],
     feature_generator: FeatureGenerator,
@@ -102,7 +80,27 @@ def test_model(
     scaler: Optional[StandardScaler] = None,
 ):
     X, _ = process_data_from_meta(test_meta, feature_generator, y_cols)
-    # X = X.fillna(0.0)  # OOPS, shuold not be NA values when computing the features
     if scaler:
         X = scaler.transform(X)
     return model.predict_proba(X)
+
+
+def predict_probas_test_set(
+    model, meta_test: pd.DataFrame, feature_generator: FeatureGenerator
+) -> pd.DataFrame:
+    """
+    Iterate on the test files, stack predicted probabilities with eeg_id as index
+    Take model and adapted feature generator object
+    """
+    predicted_probas_ = []
+    for i in range(len(meta_test)):
+        eeg = meta_test.iloc[i]
+        features = feature_generator.process(meta_test)
+        predicted_probas_sample = model.predict_proba(features)
+
+        predicted_probas_.append(
+            pd.DataFrame(predicted_probas_sample, columns=VOTE_COLS, index=[eeg["eeg_id"]])
+        )
+    sub = pd.concat(predicted_probas_)
+    sub.index.name = "eeg_id"
+    return sub

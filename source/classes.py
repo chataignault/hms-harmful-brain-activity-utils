@@ -4,7 +4,7 @@ import pandas as pd
 import os
 import numpy as np
 from esig import tosig as ts
-from .preamble import Const, Dir
+from .preamble import Const
 
 
 class Sample(ABC):
@@ -82,8 +82,11 @@ class ChainBuilder:
         self.feature_names = []
 
     ### I/O
-    def open(self, sample: Sample):
-        self.raw = sample.open_subs()
+    def open(self, sample: Sample, subsample: bool = True):
+        if subsample:
+            self.raw = sample.open_subs()
+        else:
+            self.raw = sample.open()
         self.cols = self.raw.columns
         self.features = []
         return self
@@ -132,7 +135,7 @@ class ChainBuilder:
         depth: int,
         cols: Optional[List[str]] = None,
         index: Optional[List[int]] = None,
-        parameterise: bool = False,
+        time_augment: bool = False,
     ):
         """
         take the signature of selected columns,
@@ -145,21 +148,25 @@ class ChainBuilder:
             p = len(cols)
             n_sig_terms = ChainBuilder.n_sig_coordinates(p, depth)
             index = range(n_sig_terms)
-        if parameterise:
+        if time_augment:
             index = [
-                i
-                for i in index
-                if i not in ChainBuilder.t_dependant_sig_indexes(len(cols), depth)
+                i for i in index if i not in ChainBuilder.t_dependant_sig_indexes(len(cols), depth)
             ]
             self.features.append(
                 ts.stream2sig(
-                    self.raw[cols].reset_index(drop=True).reset_index().values, depth
+                    np.concatenate(
+                        [
+                            np.linspace(0.0, 50, len(self.raw)).reshape(-1, 1),
+                            self.raw[cols].values,
+                        ],
+                        axis=1,
+                    ),
+                    depth,
                 )[index]
             )
 
         else:  # numerically instable
             self.features.append(ts.stream2sig(self.raw[cols].values, depth)[index])
-        # print(ts.sigkeys(len(cols), depth))
         sig_index = np.array(ts.sigkeys(len(cols), depth).strip().split(" "))[index]
         self.feature_names += [f"sig-{idx}" for idx in sig_index]
         return self
@@ -211,14 +218,27 @@ class FeatureGenerator:
         self.features = []
         self.save = save
 
-    def _save(self, data: pd.DataFrame, path: str):
-        data.to_parquet(path)
+    def _save(self, path: str):
+        self.features.to_parquet(path)
+
+    def _get_index_ids(self, meta: pd.DataFrame):
+        """
+        Get the right index from metadata
+            - train data has eeg id and sub_id
+            - test data has only id
+        """
+        if "eeg_sub_id" in meta.columns:
+            return pd.MultiIndex.from_frame(meta[["eeg_id", "eeg_sub_id"]])
+        return meta["eeg_id"]
 
     def process(self, metadata: pd.DataFrame, save: Optional[str] = None) -> np.ndarray:
-        self.features.append(metadata.apply(self.eeg_chain, axis=1))
-        X = pd.concat(self.features)
-        X.index = metadata["eeg_id"]
+        """
+        Compute features iteratively on each subsample,
+        keep track of (eeg_id, eeg_sub_id) which is a primary key
+        """
+        self.features = metadata.apply(self.eeg_chain, axis=1)
+        self.features.index = self._get_index_ids(metadata)
         if save or self.save:
             path = self.save if save is None else save
-            self._save(data=X, path=path)
-        return X
+            self._save(path=path)
+        return self.features
