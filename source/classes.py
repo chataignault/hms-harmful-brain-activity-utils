@@ -211,7 +211,7 @@ class FeatureGenerator:
         self.features = []
         self.save = save
 
-    def _save(self, data: pd.DataFrame, path: Dir = Dir.intermediate_output):
+    def _save(self, data: pd.DataFrame, path: str):
         data.to_parquet(path)
 
     def process(self, metadata: pd.DataFrame, save: Optional[str] = None) -> np.ndarray:
@@ -219,5 +219,6 @@ class FeatureGenerator:
         X = pd.concat(self.features)
         X.index = metadata["eeg_id"]
         if save or self.save:
-            self._save(X, save)
+            path = self.save if save is None else save
+            self._save(data=X, path=path)
         return X
