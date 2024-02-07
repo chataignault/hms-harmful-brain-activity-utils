@@ -205,18 +205,19 @@ class SpcChain(ChainBuilder):
 
 
 class FeatureGenerator:
-    def __init__(self, eeg_chain: Callable):
+    def __init__(self, eeg_chain: Callable, save: Optional[str] = None):
         self.eeg_chain = eeg_chain
         self.spc_chain = None
         self.features = []
+        self.save = save
 
-    def save(self, data: pd.DataFrame, path: Dir = Dir.intermediate_output):
+    def _save(self, data: pd.DataFrame, path: Dir = Dir.intermediate_output):
         data.to_parquet(path)
 
     def process(self, metadata: pd.DataFrame, save: Optional[str] = None) -> np.ndarray:
         self.features.append(metadata.apply(self.eeg_chain, axis=1))
         X = pd.concat(self.features)
         X.index = metadata["eeg_id"]
-        if save:
-            self.save(X, save)
+        if save or self.save:
+            self._save(X, save)
         return X
