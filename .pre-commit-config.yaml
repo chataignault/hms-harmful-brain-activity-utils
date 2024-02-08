@@ -8,3 +8,4 @@ repos:
       - id: ruff-format  # formatter
         types_or: [ python, pyi, jupyter ]
         args: [ --line-length=100 ]
+        ignore: ["F403", "F405"]
