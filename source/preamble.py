@@ -462,9 +462,7 @@ class Grade(float, Enum):
 
 ### FLAG DEPENDANT
 if KAGGLE:
-    base_dir = os.path.join(
-        os.getcwd(), "..", "input", "hms-harmful-brain-activity-classification"
-    )
+    base_dir = os.path.join(os.getcwd(), "..", "input", "hms-harmful-brain-activity-classification")
 
     class Dir(str, Enum):
         root = base_dir
@@ -487,7 +485,3 @@ else:  # local
         spc_test = os.path.join(base_dir, "test_spectrograms")
         out = os.path.join(base_dir, "submissions")
         intermediate_output = os.path.join(base_dir, "intermediate_output")
-
-    class Const(int, Enum):
-        eeg_len = 50
-        fq_eeg = 200
