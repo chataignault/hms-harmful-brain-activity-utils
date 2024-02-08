@@ -1,6 +1,6 @@
 import pandas as pd
 from typing import Optional, Callable, Union
-from sklearn.ensemble import GradientBoostingClassifier
+from sklearn.ensemble import GradientBoostingClassifier, RandomForestClassifier
 from sklearn.preprocessing import StandardScaler
 
 from sklearn.linear_model import LogisticRegressionCV
@@ -14,13 +14,16 @@ from .classes import FeatureGenerator
 
 def train_GBC(
     train: pd.DataFrame,
+    feature_generator: Callable,
     y_cols: str,
     max_nsample: Optional[int] = None,
     grade: Optional[Grade] = None,
     params: Optional[dict] = None,
     scale: bool = False,
 ) -> GradientBoostingClassifier:
-    X, Y = process_data_from_meta(train, y_cols, max_nsample=max_nsample, grade=grade)
+    X, Y = process_data_from_meta(
+        train, feature_generator, y_cols, max_nsample=max_nsample, grade=grade
+    )
     if scale:
         scaler = StandardScaler()
         scaler.fit(X)
@@ -36,6 +39,40 @@ def train_GBC(
             max_depth=3,
         )
     model.fit(X, Y)
+    if scale:
+        return model, scaler
+    return model
+
+
+def train_random_forest_classifier(
+    train: pd.DataFrame,
+    feature_generator: Callable,
+    y_cols: str,
+    max_nsample: Optional[int] = None,
+    grade: Optional[Grade] = None,
+    params: Optional[dict] = None,
+    scale: bool = False,
+) -> RandomForestClassifier:
+    X, Y = process_data_from_meta(
+        train, feature_generator, y_cols, max_nsample=max_nsample, grade=grade
+    )
+    if scale:
+        scaler = StandardScaler()
+        scaler.fit(X)
+        X = scaler.transform(X)
+    if params:  # grid search
+        model = RandomForestClassifier(**params)
+    else:  # set best params
+        model = RandomForestClassifier(
+            criterion="gini",
+            max_depth=None,
+            max_features="sqrt",
+            bootstrap=True,
+            n_estimators=200,
+        )
+    model.fit(X, Y)
+    if scale:
+        return model, scaler
     return model
 
 
