@@ -43,6 +43,8 @@ EEG_COLS = [
     "O2",
     "EKG",
 ]
+EEG_COL_IDX = dict(zip(EEG_COLS, range(len(EEG_COLS))))
+
 SPC_COLS = [
     "time"
     "LL_0.59"

@@ -5,7 +5,7 @@ import os
 import numpy as np
 from esig import tosig as ts
 from joblib import Parallel, delayed
-from .preamble import Const
+from .preamble import Const, EEG_COLS
 
 
 class Sample(ABC):
@@ -48,15 +48,25 @@ class Eeg(Sample):
         for key, value in kwargs.items():
             setattr(self, key, value)
 
-    def open(self, extension: str = ".parquet"):
-        return pd.read_parquet(os.path.join(self.folder, str(int(self.eeg_id)) + extension))
+    def open(self):
+        return pd.read_parquet(os.path.join(self.folder, str(int(self.eeg_id)) + ".parquet"))
+
+    def open_npy(self):
+        return np.load(os.path.join(self.folder, str(int(self.eeg_id)) + ".npy"))
 
     def open_subs(self):
         return self.get_subs(self.open())
 
-    def get_subs(self, sample: pd.DataFrame):
+    def open_subs_npy(self):
+        return self.get_subs_np(self.open_npy())
+
+    def get_subs(self, sample: pd.DataFrame) -> pd.DataFrame:
         start, end = self.get_start_end_subsample()
         return sample.iloc[start:end]
+
+    def get_subs_np(self, sample: np.ndarray) -> np.ndarray:
+        start, end = self.get_start_end_subsample()
+        return sample[start:end]
 
 
 class Spect(Sample):
@@ -92,8 +102,20 @@ class ChainBuilder:
         self.features = []
         return self
 
+    def open_npy(self, sample: Sample, subsample: bool = True):
+        if subsample:
+            self.raw = sample.open_subs_npy()
+        else:
+            self.raw = sample.open_npy()
+        self.cols = EEG_COLS
+        self.features = []
+        return self
+
     def result(self) -> pd.Series:
         return pd.Series(np.concatenate(self.features), index=self.feature_names)
+
+    def result_npy(self) -> np.ndarray:
+        return np.concatenate(self.features)
 
     ### PREPROCESS
 
@@ -104,6 +126,10 @@ class ChainBuilder:
     def _fillna(self, value: float = 0.0):
         self.raw = self.raw.fillna(value)
         return self
+
+    # def _fillna_np(self, value: float = 0.0):
+    #     self.raw = np.fillself.raw.fillna(value)
+    #     return self
 
     ### POSTPROCESS
 
@@ -116,19 +142,37 @@ class ChainBuilder:
     def mean(self, cols: List[str]):
         if cols:
             self.features.append(np.mean(self.raw[cols], axis=0))
-            self.feature_names += [col + "-mean" for col in cols]
+            self.feature_names += [str(col) + "-mean" for col in cols]
         else:
             self.features.append(np.mean(self.raw, axis=0))
-            self.feature_names += [col + "-mean" for col in self.cols]
+            self.feature_names += [str(col) + "-mean" for col in self.cols]
+        return self
+
+    def mean_npy(self, cols: List[str]):
+        if cols:
+            self.features.append(np.mean(self.raw[:, cols], axis=0))
+            self.feature_names += [str(col) + "-mean" for col in cols]
+        else:
+            self.features.append(np.mean(self.raw, axis=0))
+            self.feature_names += [str(col) + "-mean" for col in self.cols]
         return self
 
     def var(self, cols: List[str]):
         if cols:
             self.features.append(np.var(self.raw[cols], axis=0))
-            self.feature_names += [col + "-var" for col in cols]
+            self.feature_names += [str(col) + "-var" for col in cols]
         else:
             self.features.append(np.var(self.raw, axis=0))
-            self.feature_names += [col + "-var" for col in self.cols]
+            self.feature_names += [str(col) + "-var" for col in self.cols]
+        return self
+
+    def var_npy(self, cols: List[str]):
+        if cols:
+            self.features.append(np.var(self.raw[:, cols], axis=0))
+            self.feature_names += [str(col) + "-var" for col in cols]
+        else:
+            self.features.append(np.var(self.raw, axis=0))
+            self.feature_names += [str(col) + "-var" for col in self.cols]
         return self
 
     def signature(
@@ -158,7 +202,7 @@ class ChainBuilder:
                     np.concatenate(
                         [
                             np.linspace(0.0, 50, len(self.raw)).reshape(-1, 1),
-                            self.raw[cols].values,
+                            self.raw[cols],  # .values,
                         ],
                         axis=1,
                     ),
@@ -168,6 +212,45 @@ class ChainBuilder:
 
         else:  # numerically instable
             self.features.append(ts.stream2sig(self.raw[cols].values, depth)[index])
+        sig_index = np.array(ts.sigkeys(len(cols), depth).strip().split(" "))[index]
+        self.feature_names += [f"sig-{idx}" for idx in sig_index]
+        return self
+
+    def signature_npy(
+        self,
+        depth: int,
+        cols: List[int],
+        index: Optional[List[int]] = None,
+        time_augment: bool = False,
+    ):
+        """
+        take the signature of selected columns,
+        with max depth,
+        and select only desired elements of the signature
+        """
+        if index is None:
+            p = len(cols)
+            n_sig_terms = ChainBuilder.n_sig_coordinates(p, depth)
+            index = range(n_sig_terms)
+        if time_augment:
+            index = [
+                i for i in index if i not in ChainBuilder.t_dependant_sig_indexes(len(cols), depth)
+            ]
+            self.features.append(
+                ts.stream2sig(
+                    np.concatenate(
+                        [
+                            np.linspace(0.0, 50, len(self.raw)).reshape(-1, 1),
+                            self.raw[:, cols],  # .values,
+                        ],
+                        axis=1,
+                    ),
+                    depth,
+                )[index]
+            )
+
+        else:  # numerically instable
+            self.features.append(ts.stream2sig(self.raw[:, cols], depth)[index])
         sig_index = np.array(ts.sigkeys(len(cols), depth).strip().split(" "))[index]
         self.feature_names += [f"sig-{idx}" for idx in sig_index]
         return self
@@ -249,13 +332,12 @@ class FeatureGenerator:
         Compute features faster with .npy extension and parallelisation
         """
         columns = ["eeg_id", "eeg_sub_id", "eeg_label_offset_seconds", "eeg_length"]
-        self.features = pd.concat(
+        self.features = np.array(
             Parallel(n_jobs=4, backend="loky")(
                 delayed(self.eeg_chain)(eeg) for _, eeg in metadata[columns].iterrows()
-            ),
-            axis=1,
-        ).T
-        self.features.index = self._get_index_ids(metadata)
+            )
+        )
+        # self.features.index = self._get_index_ids(metadata)
         if save or self.save:
             path = self.save if save is None else save
             self._save(path=path)
