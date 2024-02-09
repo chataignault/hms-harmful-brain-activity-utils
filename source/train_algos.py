@@ -1,9 +1,10 @@
+import numpy as np
 import pandas as pd
 from typing import Optional, Callable, Union
-from sklearn.ensemble import GradientBoostingClassifier, RandomForestClassifier
 from sklearn.preprocessing import StandardScaler
-
 from sklearn.linear_model import LogisticRegressionCV
+from sklearn.ensemble import GradientBoostingClassifier, RandomForestClassifier
+
 
 from .preamble import Grade, VOTE_COLS
 from .process import (
@@ -38,7 +39,7 @@ def train_GBC(
             n_estimators=200,
             max_depth=3,
         )
-    model.fit(X, Y)
+    model.fit(X, np.ravel(Y))
     if scale:
         return model, scaler
     return model
@@ -67,7 +68,9 @@ def train_random_forest_classifier(
             criterion="gini",
             max_depth=None,
             max_features="sqrt",
+            min_samples_split=2,
             bootstrap=True,
+            oob_score=True,
             n_estimators=200,
         )
     model.fit(X, Y)
