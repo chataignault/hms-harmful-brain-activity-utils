@@ -4,6 +4,7 @@ import pandas as pd
 import os
 import numpy as np
 from esig import tosig as ts
+from joblib import Parallel, delayed
 from .preamble import Const
 
 
@@ -48,7 +49,7 @@ class Eeg(Sample):
             setattr(self, key, value)
 
     def open(self, extension: str = ".parquet"):
-        return pd.read_parquet(os.path.join(self.folder, str(self.eeg_id) + extension))
+        return pd.read_parquet(os.path.join(self.folder, str(int(self.eeg_id)) + extension))
 
     def open_subs(self):
         return self.get_subs(self.open())
@@ -231,12 +232,29 @@ class FeatureGenerator:
             return pd.MultiIndex.from_frame(meta[["eeg_id", "eeg_sub_id"]])
         return meta["eeg_id"]
 
-    def process(self, metadata: pd.DataFrame, save: Optional[str] = None) -> np.ndarray:
+    def process(self, metadata: pd.DataFrame, save: Optional[str] = None) -> pd.DataFrame:
         """
         Compute features iteratively on each subsample,
         keep track of (eeg_id, eeg_sub_id) which is a primary key
         """
         self.features = metadata.apply(self.eeg_chain, axis=1)
+        self.features.index = self._get_index_ids(metadata)
+        if save or self.save:
+            path = self.save if save is None else save
+            self._save(path=path)
+        return self.features
+
+    def parallel_process(self, metadata: pd.DataFrame, save: Optional[str] = None) -> np.ndarray:
+        """
+        Compute features faster with .npy extension and parallelisation
+        """
+        columns = ["eeg_id", "eeg_sub_id", "eeg_label_offset_seconds", "eeg_length"]
+        self.features = pd.concat(
+            Parallel(n_jobs=4, backend="loky")(
+                delayed(self.eeg_chain)(eeg) for _, eeg in metadata[columns].iterrows()
+            ),
+            axis=1,
+        ).T
         self.features.index = self._get_index_ids(metadata)
         if save or self.save:
             path = self.save if save is None else save
