@@ -3,8 +3,12 @@ import pandas as pd
 from typing import Optional, Callable, Union
 from sklearn.preprocessing import StandardScaler
 from sklearn.linear_model import LogisticRegressionCV
-from sklearn.ensemble import GradientBoostingClassifier, RandomForestClassifier
-
+from sklearn.ensemble import (
+    GradientBoostingClassifier,
+    RandomForestClassifier,
+    GradientBoostingRegressor,
+)
+from scipy.special import expit
 
 from .preamble import Grade, VOTE_COLS
 from .process import (
@@ -43,6 +47,51 @@ def train_GBC(
     if scale:
         return model, scaler
     return model
+
+
+def train_GBRegressors(
+    train: pd.DataFrame,
+    feature_generator: Callable,
+    y_cols: str,
+    max_nsample: Optional[int] = None,
+    grade: Optional[Grade] = None,
+    params: Optional[dict] = None,
+    scale: bool = False,
+) -> GradientBoostingRegressor:
+    """
+    Attempt to train one tree for each category :
+    The idea is that classification looses information on what other classes were considered in the votes
+    """
+    X, Y = process_data_from_meta(
+        train,
+        feature_generator,
+        y_cols,
+        max_nsample=max_nsample,
+        grade=grade,
+        classification=False,
+    )
+    Y = Y.values
+    if scale:
+        scaler = StandardScaler()
+        scaler.fit(X)
+        X = scaler.transform(X)
+    if params:  # grid search
+        NotImplemented
+    else:  # set best params
+        models = [
+            GradientBoostingRegressor(
+                loss="squared_error",
+                learning_rate=0.1,
+                criterion="friedman_mse",
+                n_estimators=200,
+                max_depth=3,
+            )
+            for _ in range(len(Y[0]))
+        ]
+    models = [model.fit(X, Y[:, i]) for i, model in enumerate(models)]
+    if scale:
+        return models, scaler
+    return models
 
 
 def train_random_forest_classifier(
@@ -118,11 +167,19 @@ def test_model(
     y_cols: str,
     test_meta: pd.DataFrame,
     scaler: Optional[StandardScaler] = None,
+    classification: bool = True,
 ):
-    X, _ = process_data_from_meta(test_meta, feature_generator, y_cols)
+    X, _ = process_data_from_meta(
+        test_meta, feature_generator, y_cols, classification=classification
+    )
     if scaler:
         X = scaler.transform(X)
-    return model.predict_proba(X)
+    if classification:
+        return model.predict_proba(X)
+    else:
+        Y_hat = model.predict(X)  # logodds
+        predicted_probas = expit(Y_hat)
+        return predicted_probas
 
 
 def predict_probas_test_set(

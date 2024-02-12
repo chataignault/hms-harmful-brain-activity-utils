@@ -1,7 +1,9 @@
+import os
+import numpy as np
 import pandas as pd
 from typing import Optional, Tuple
-import os
 from sklearn.utils import shuffle
+from scipy.special import logit
 
 from .preamble import Grade, Dir, KAGGLE, RANDOM_STATE, VOTE_COLS
 from .classes import Eeg, FeatureGenerator
@@ -79,9 +81,16 @@ def pre_process_meta(
     return meta
 
 
-def process_target(Y: pd.DataFrame) -> pd.DataFrame:
-    Y = pd.DataFrame(Y.idxmax(axis=1))
-    return Y
+def process_target(Y: pd.DataFrame, classification: bool) -> pd.DataFrame:
+    """
+    if classification, return the majority class index
+    otherwise return the logodds to apply regression
+    """
+    if classification:
+        Y = pd.DataFrame(Y.idxmax(axis=1))
+        return Y
+    eps = 1e-5
+    return logit(np.clip(Y, eps, 1 - eps))
 
 
 def process_data_from_meta(
@@ -90,11 +99,12 @@ def process_data_from_meta(
     y_cols: str,
     max_nsample: Optional[int] = None,
     grade: Optional[Grade] = None,
+    classification: bool = True,
 ) -> Tuple[pd.DataFrame, pd.DataFrame]:
     """
     Process the train data from the metadata to (design matrix,  target matrix)
     """
     meta = pre_process_meta(meta, y_cols, grade)
-    Y = process_target(meta[y_cols]).iloc[:max_nsample]
+    Y = process_target(meta[y_cols], classification).iloc[:max_nsample]
     X = feature_generator.process(meta.iloc[:max_nsample])
     return X, Y
