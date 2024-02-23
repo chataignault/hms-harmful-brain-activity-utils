@@ -1,9 +1,10 @@
 import os
 import numpy as np
 import pandas as pd
-from typing import Optional, Tuple
+from typing import Optional, Tuple, List
 from sklearn.utils import shuffle
 from scipy.special import logit
+from joblib import Parallel, delayed
 
 from .preamble import Grade, Dir, KAGGLE, RANDOM_STATE, VOTE_COLS
 from .classes import Eeg, FeatureGenerator
@@ -14,6 +15,23 @@ Extend signals with isna column so that no bad interpolation is done and informa
 EEG and spectrogram data : redundant ?
 
 """
+
+
+def parquet_to_npy(in_folder: Dir, out_folder: Dir, eeg_id: str) -> None:
+    eeg = pd.read_parquet(os.path.join(in_folder, f"{eeg_id}.parquet"))
+    eeg = eeg.values.astype("float32")
+    np.save(os.path.join(out_folder, f"{eeg_id}.npy"), eeg)
+
+
+def convert_parquet_to_npy(in_folder: Dir, out_folder: Dir, names: List[str]) -> None:
+    """
+    Convert all parquet files
+    keeping the same name
+    embarassingly parallel
+    """
+    Parallel(n_jobs=3, backend="loky")(
+        delayed(parquet_to_npy)(in_folder, out_folder, eeg_id) for eeg_id in names
+    )
 
 
 def open_train_metadata(read: bool = False, checkna: bool = False) -> pd.DataFrame:
