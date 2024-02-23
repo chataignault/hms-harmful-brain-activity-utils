@@ -8,7 +8,6 @@ from sklearn.ensemble import (
     RandomForestClassifier,
     GradientBoostingRegressor,
 )
-from scipy.special import expit
 
 from .preamble import Grade, VOTE_COLS
 from .process import (
@@ -76,11 +75,14 @@ def train_GBRegressors(
         scaler.fit(X)
         X = scaler.transform(X)
     if params:  # grid search
-        NotImplemented
+        models = [
+            GradientBoostingRegressor(loss="absolute_error", criterion="friedman_mse", **params)
+            for _ in range(len(Y[0]))
+        ]
     else:  # set best params
         models = [
             GradientBoostingRegressor(
-                loss="squared_error",
+                loss="absolute_error",
                 learning_rate=0.1,
                 criterion="friedman_mse",
                 n_estimators=200,
@@ -120,7 +122,7 @@ def train_random_forest_classifier(
             min_samples_split=2,
             bootstrap=True,
             oob_score=True,
-            n_estimators=200,
+            n_estimators=300,
         )
     model.fit(X, Y)
     if scale:
@@ -178,8 +180,8 @@ def test_model(
         return model.predict_proba(X)
     else:
         Y_hat = model.predict(X)  # logodds
-        predicted_probas = expit(Y_hat)
-        return predicted_probas
+        eY_hat = np.exp(Y_hat)
+        return eY_hat
 
 
 def predict_probas_test_set(
