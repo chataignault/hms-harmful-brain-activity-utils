@@ -3,6 +3,7 @@ from typing import Tuple, Optional, Union, List, Callable
 import pandas as pd
 import os
 import numpy as np
+from math import factorial
 from esig import tosig as ts
 from joblib import Parallel, delayed
 from .preamble import Const, EEG_COLS
@@ -23,7 +24,7 @@ class Sample(ABC):
     def get_start_end_subsample(self) -> Tuple[int, int]:
         start_s = int(self.eeg_label_offset_seconds)
         duration_s = int(self.eeg_length)
-        return Const.fq_eeg * start_s, Const.fq_eeg * (start_s + duration_s)
+        return int(Const.fq_eeg) * start_s, int(Const.fq_eeg) * (start_s + duration_s)
 
     def plot(self, columns: Optional[Union[str, List[str]]] = None):
         kwargs = {
@@ -118,6 +119,12 @@ class ChainBuilder:
         return np.concatenate(self.features)
 
     ### PREPROCESS
+
+    def _center(self):
+        self.raw = self.raw - np.mean(self.raw, axis=0)
+        return self
+
+    # def _select_first_samples(self, n_samples:int):
 
     def _divide(self, coef: float):
         self.raw = self.raw / coef
@@ -222,36 +229,36 @@ class ChainBuilder:
         cols: List[int],
         index: Optional[List[int]] = None,
         time_augment: bool = False,
+        factorial_rescale: bool = False,
     ):
         """
         take the signature of selected columns,
         with max depth,
         and select only desired elements of the signature
+        if rescale, multiply by k! to avoid decay
         """
+        p = len(cols) + int(time_augment)
         if index is None:
-            p = len(cols)
             n_sig_terms = ChainBuilder.n_sig_coordinates(p, depth)
             index = range(n_sig_terms)
         if time_augment:
-            index = [
-                i for i in index if i not in ChainBuilder.t_dependant_sig_indexes(len(cols), depth)
-            ]
-            self.features.append(
-                ts.stream2sig(
-                    np.concatenate(
-                        [
-                            np.linspace(0.0, 50, len(self.raw)).reshape(-1, 1),
-                            self.raw[:, cols],  # .values,
-                        ],
-                        axis=1,
-                    ),
-                    depth,
-                )[index]
-            )
-
+            index = [i for i in index if i not in ChainBuilder.t_dependant_sig_indexes(p, depth)]
+            sig = ts.stream2sig(
+                np.concatenate(
+                    [
+                        np.linspace(0.0, Const.eeg_len, len(self.raw)).reshape(-1, 1),
+                        self.raw[:, cols],
+                    ],
+                    axis=1,
+                ),
+                depth,
+            )[index]
         else:  # numerically instable
-            self.features.append(ts.stream2sig(self.raw[:, cols], depth)[index])
-        sig_index = np.array(ts.sigkeys(len(cols), depth).strip().split(" "))[index]
+            sig = ts.stream2sig(self.raw[:, cols], depth)[index]
+        if factorial_rescale:
+            sig = ChainBuilder.factorial_rescale(sig, depth, p)
+        self.features.append(sig)
+        sig_index = np.array(ts.sigkeys(p, depth).strip().split(" "))[index]
         self.feature_names += [f"sig-{idx}" for idx in sig_index]
         return self
 
@@ -267,6 +274,14 @@ class ChainBuilder:
         p : path dimension
         """
         return set(np.cumsum([(p + 1) ** k for k in range(depth)]))
+
+    @staticmethod
+    def factorial_rescale(sig: np.array, depth: int, p: int) -> np.ndarray:
+        fact = np.array(
+            [1.0] + [factorial(d) for d in range(1, depth + 1) for _ in range(p**d - 1)]
+        )
+        print(len(sig), len(fact))
+        return np.multiply(sig, fact)  # r
 
 
 class EegChain(ChainBuilder):
