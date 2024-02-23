@@ -15,9 +15,7 @@ def MSE_(Y: np.ndarray, Y_hat: np.ndarray, **kwargs) -> float:
     return np.linalg.norm(Y - Y_hat) / N
 
 
-def compute_wasserstein(
-    predicted_probas: np.ndarray, target_probas: np.ndarray
-) -> float:
+def compute_wasserstein(predicted_probas: np.ndarray, target_probas: np.ndarray) -> float:
     """
     Should be done on the joint probability actually
     """
@@ -32,24 +30,28 @@ def compute_KL_div(predicted_probas: np.ndarray, target_probas: np.ndarray) -> f
     ISSUE with infinite values -> clip to zero for now
     (from test set, inf values are a small minority)
     """
-    n, m = predicted_probas.shape
-    N = n * m
+    N = len(predicted_probas)
     kl_pointwise = kl_div(predicted_probas, target_probas)
     kl_pointwise[kl_pointwise == np.inf] = 0.0
     return np.sum(np.sum(kl_pointwise)) / N
 
 
+def accuracy(predicted_probas: np.ndarray, target_probas: np.ndarray) -> float:
+    true_label = np.argmax(target_probas, axis=1)
+    pred_label = np.argmax(predicted_probas, axis=1)
+    return np.sum(true_label == pred_label) / len(true_label)
+
+
 def score(Y: np.ndarray, Y_hat: np.ndarray, **kwargs) -> pd.DataFrame:
     """
     Return summary of scores for true and predicted values
+    - add cross-entropy
     """
     score_functions = {
         "MSE": MSE_,
         "Wasserstein": compute_wasserstein,
         "KullbackLDiv": compute_KL_div,
+        "Accuracy": accuracy,
     }
-    scores = {
-        sfn: [score_functions[sfn](Y_hat, Y, **kwargs)]
-        for sfn in score_functions.keys()
-    }
+    scores = {sfn: [score_functions[sfn](Y_hat, Y, **kwargs)] for sfn in score_functions.keys()}
     return pd.DataFrame(scores)

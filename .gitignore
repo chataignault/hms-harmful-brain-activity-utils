@@ -1,6 +1,8 @@
 __pycache__/
 source/__pycache__/
 
+*.txt
+
 feature_exploration.ipynb
 file_exploration.ipynb
 gradient_boost_classifier.ipynb

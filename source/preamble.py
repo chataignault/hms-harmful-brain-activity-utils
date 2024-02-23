@@ -458,6 +458,7 @@ class Grade(float, Enum):
     certain = 1.0
     good = 0.75
     average = 0.5
+    bad = 0.0
 
 
 ### FLAG DEPENDANT
