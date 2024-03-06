@@ -43,6 +43,8 @@ EEG_COLS = [
     "O2",
     "EKG",
 ]
+EEG_COL_IDX = dict(zip(EEG_COLS, range(len(EEG_COLS))))
+
 SPC_COLS = [
     "time"
     "LL_0.59"
@@ -448,6 +450,10 @@ SPC_COLS = [
 ]
 
 
+def eeg_name_to_idx(names):
+    return [EEG_COL_IDX[name] for name in names]
+
+
 ### CONST
 class Const(int, Enum):
     eeg_len = 50
@@ -458,6 +464,7 @@ class Grade(float, Enum):
     certain = 1.0
     good = 0.75
     average = 0.5
+    bad = 0.0
 
 
 ### FLAG DEPENDANT
