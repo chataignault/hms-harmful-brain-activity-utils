@@ -450,6 +450,10 @@ SPC_COLS = [
 ]
 
 
+def eeg_name_to_idx(names):
+    return [EEG_COL_IDX[name] for name in names]
+
+
 ### CONST
 class Const(int, Enum):
     eeg_len = 50

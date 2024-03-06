@@ -280,7 +280,6 @@ class ChainBuilder:
         fact = np.array(
             [1.0] + [factorial(d) for d in range(1, depth + 1) for _ in range(p**d - 1)]
         )
-        print(len(sig), len(fact))
         return np.multiply(sig, fact)  # r
 
 
@@ -311,11 +310,12 @@ class SpcChain(ChainBuilder):
 
 
 class FeatureGenerator:
-    def __init__(self, eeg_chain: Callable, save: Optional[str] = None):
+    def __init__(self, eeg_chain: Callable, parallel: bool = False, save: Optional[str] = None):
         self.eeg_chain = eeg_chain
         self.spc_chain = None
         self.features = []
         self.save = save
+        self.parallel = parallel  # just a flag
 
     def _save(self, path: str):
         self.features.to_parquet(path)

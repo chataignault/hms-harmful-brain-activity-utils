@@ -10,10 +10,9 @@ from sklearn.ensemble import (
 )
 
 from .preamble import Grade, VOTE_COLS
-from .process import (
-    process_data_from_meta,
-)
+from .process import process_data_from_meta, print_summary_metadata
 from .classes import FeatureGenerator
+from .scoring import score
 
 
 def train_GBC(
@@ -134,20 +133,21 @@ def train_logistic_regression_CV(
     train: pd.DataFrame,
     feature_generator: Callable,
     y_cols: str,
-    max_it: int = 100,
+    max_it: int = 10000,
     grade: Optional[Grade] = None,
     max_nsample: Optional[int] = None,
     scale: bool = False,
     Cs: int = 10,
     fit_intercept: bool = False,
 ) -> LogisticRegressionCV:
-    X, Y = process_data_from_meta(
+    X, Y, selected_meta = process_data_from_meta(
         train, feature_generator, y_cols, max_nsample=max_nsample, grade=grade
     )
+
     model = LogisticRegressionCV(
         fit_intercept=fit_intercept,
         penalty="l1",
-        solver="saga",
+        solver="saga",  # good for large datasets
         multi_class="multinomial",
         max_iter=max_it,
         Cs=Cs,
@@ -157,10 +157,42 @@ def train_logistic_regression_CV(
         scaler.fit(X)
         X = scaler.transform(X)
 
-    model.fit(X, Y)
+    model.fit(X, np.ravel(Y))
+
+    display_in_sample_score(X, selected_meta, model)
+
     if scale:
         return model, scaler
+
     return model
+
+
+def display_in_sample_score(
+    X: np.ndarray,
+    selected_meta: pd.DataFrame,
+    model: Union[LogisticRegressionCV, GradientBoostingClassifier],
+):
+    """
+    Compare the in sample score with :
+        - uniform prediction
+        - argmax prediction
+    """
+    print_summary_metadata(selected_meta)
+    pp = [1.0 / 6] * 6
+    uniform_in_score = score(
+        np.array([pp for _ in range(len(selected_meta))]), selected_meta[VOTE_COLS].values
+    )
+    print(">>> Uniform perdiction")
+    display(uniform_in_score)
+    in_predicted_probas = model.predict_proba(X)
+    in_sample_score = score(in_predicted_probas, selected_meta[VOTE_COLS].values)
+    print(">>> Model predicted probabilities score")
+    display(in_sample_score)
+    max_proba_predict = (
+        in_predicted_probas == np.repeat(np.max(in_predicted_probas, axis=1), 6).reshape((-1, 6))
+    ).astype(float)
+    print(">>> Argmax prediction")
+    display(score(max_proba_predict, selected_meta[VOTE_COLS].values))
 
 
 def test_model(
@@ -171,7 +203,7 @@ def test_model(
     scaler: Optional[StandardScaler] = None,
     classification: bool = True,
 ):
-    X, _ = process_data_from_meta(
+    X, *other = process_data_from_meta(
         test_meta, feature_generator, y_cols, classification=classification
     )
     if scaler:

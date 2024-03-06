@@ -19,6 +19,7 @@ EEG and spectrogram data : redundant ?
 
 def parquet_to_npy(in_folder: Dir, out_folder: Dir, eeg_id: str) -> None:
     eeg = pd.read_parquet(os.path.join(in_folder, f"{eeg_id}.parquet"))
+    eeg = eeg.fillna(0.0)  # TODO
     eeg = eeg.values.astype("float32")
     np.save(os.path.join(out_folder, f"{eeg_id}.npy"), eeg)
 
@@ -124,5 +125,8 @@ def process_data_from_meta(
     """
     meta = pre_process_meta(meta, y_cols, grade)
     Y = process_target(meta[y_cols], classification).iloc[:max_nsample]
-    X = feature_generator.process(meta.iloc[:max_nsample])
-    return X, Y
+    if feature_generator.parallel:
+        X = feature_generator.parallel_process(meta.iloc[:max_nsample])
+    else:
+        X = feature_generator.process(meta.iloc[:max_nsample])
+    return X, Y, meta.iloc[:max_nsample]
