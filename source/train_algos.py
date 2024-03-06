@@ -104,7 +104,7 @@ def train_random_forest_classifier(
     params: Optional[dict] = None,
     scale: bool = False,
 ) -> RandomForestClassifier:
-    X, Y = process_data_from_meta(
+    X, Y, selected_meta = process_data_from_meta(
         train, feature_generator, y_cols, max_nsample=max_nsample, grade=grade
     )
     if scale:
@@ -124,6 +124,8 @@ def train_random_forest_classifier(
             n_estimators=300,
         )
     model.fit(X, Y)
+
+    display_in_sample_score(X, selected_meta, model)
     if scale:
         return model, scaler
     return model
