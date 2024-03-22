@@ -3,23 +3,30 @@ from typing import Tuple, Optional, Union, List, Callable
 import pandas as pd
 import os
 import numpy as np
+from scipy.signal import convolve2d
 from math import factorial
 from esig import tosig as ts
 from joblib import Parallel, delayed
-from .preamble import Const, EEG_COLS
+from .preamble import Const, EEG_COLS, Dir
 
 
 class Sample(ABC):
-    def __init__(self, folder: str):
+    def __init__(self, folder: Dir, sample: pd.Series):
         self.folder = folder
+        kwargs = sample.to_dict()
+        for key, value in kwargs.items():
+            setattr(self, key, value)
 
     @abstractmethod
     def open(self, **kwargs) -> pd.DataFrame:
         NotImplemented
 
-    @abstractmethod
-    def open_subs(self, subsample: int) -> pd.DataFrame:
-        NotImplemented
+    def open_subs(self):
+        return self.get_subs(self.open())
+
+    def get_subs(self, sample: pd.DataFrame) -> pd.DataFrame:
+        start, end = self.get_start_end_subsample()
+        return sample.iloc[start:end]
 
     def get_start_end_subsample(self) -> Tuple[int, int]:
         start_s = int(self.eeg_label_offset_seconds)
@@ -41,13 +48,8 @@ class Sample(ABC):
 
 
 class Eeg(Sample):
-    def __init__(
-        self, folder, sample: pd.Series
-    ):  # don't forget to add length in sec to the meta df
-        super().__init__(folder)
-        kwargs = sample.to_dict()
-        for key, value in kwargs.items():
-            setattr(self, key, value)
+    def __init__(self, folder: Dir, sample: pd.Series):
+        super().__init__(folder, sample)
 
     def open(self):
         return pd.read_parquet(os.path.join(self.folder, str(int(self.eeg_id)) + ".parquet"))
@@ -55,15 +57,8 @@ class Eeg(Sample):
     def open_npy(self):
         return np.load(os.path.join(self.folder, str(int(self.eeg_id)) + ".npy"))
 
-    def open_subs(self):
-        return self.get_subs(self.open())
-
     def open_subs_npy(self):
         return self.get_subs_np(self.open_npy())
-
-    def get_subs(self, sample: pd.DataFrame) -> pd.DataFrame:
-        start, end = self.get_start_end_subsample()
-        return sample.iloc[start:end]
 
     def get_subs_np(self, sample: np.ndarray) -> np.ndarray:
         start, end = self.get_start_end_subsample()
@@ -71,14 +66,15 @@ class Eeg(Sample):
 
 
 class Spect(Sample):
-    def __init__(self, **kwargs):
-        super().__init__(self, **kwargs)
+    def __init__(self, folder: Dir, sample: pd.Series):
+        super().__init__(folder, sample)
 
-    def open():
-        None
-
-    def open_subsample(self, subsample: int):
-        None
+    def open(self):
+        return (
+            pd.read_parquet(os.path.join(self.folder, str(int(self.spectrogram_id)) + ".parquet"))
+            .set_index("time")
+            .dropna(axis=0)
+        )
 
 
 class ChainBuilder:
@@ -94,12 +90,14 @@ class ChainBuilder:
         self.feature_names = []
 
     ### I/O
-    def open(self, sample: Sample, subsample: bool = True):
+    def open(self, sample: Sample, subsample: bool = True, convert_np: bool = True):
         if subsample:
             self.raw = sample.open_subs()
         else:
             self.raw = sample.open()
         self.cols = self.raw.columns
+        if convert_np:
+            self.raw = self.raw.values
         self.features = []
         return self
 
@@ -124,6 +122,11 @@ class ChainBuilder:
         self.raw = self.raw - np.mean(self.raw, axis=0)
         return self
 
+    def _moving_average(self, window: int):
+        v = np.ones((window, 1)) / window
+        self.raw = convolve2d(self.raw, v, mode="same")
+        return self
+
     # def _select_first_samples(self, n_samples:int):
 
     def _divide(self, coef: float):
@@ -132,6 +135,19 @@ class ChainBuilder:
 
     def _fillna(self, value: float = 0.0):
         self.raw = self.raw.fillna(value)
+        return self
+
+    def _crop(self, length: int):
+        """
+        quickfix error :
+        RuntimeError: vector too long
+        from esig.stream2sig
+        """
+        self.raw = self.raw[:length, :]
+        return self
+
+    def _tanh(self):
+        self.raw = np.tanh(self.raw)
         return self
 
     # def _fillna_np(self, value: float = 0.0):
@@ -346,7 +362,13 @@ class FeatureGenerator:
         """
         Compute features faster with .npy extension and parallelisation
         """
-        columns = ["eeg_id", "eeg_sub_id", "eeg_label_offset_seconds", "eeg_length"]
+        columns = [
+            "eeg_id",
+            "eeg_sub_id",
+            "eeg_label_offset_seconds",
+            "eeg_length",
+            "spectrogram_id",
+        ]
         self.features = np.array(
             Parallel(n_jobs=4, backend="loky")(
                 delayed(self.eeg_chain)(eeg) for _, eeg in metadata[columns].iterrows()
